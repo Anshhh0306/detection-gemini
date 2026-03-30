@@ -236,47 +236,42 @@ def predict_voice(audio_path: str, language: str = "English") -> dict:
         
         # ========== SPECIALIZED FEATURE CHECKS ==========
         # Each check analyzes specific feature indicators
+        # Thresholds relaxed for multilingual support (Hindi, Tamil, Malayalam, Telugu, English)
         
         check_results = {}
         
         # CHECK 1: BACKGROUND ANALYSIS (V4 features 200-207)
-        # AI has suspiciously uniform/clean backgrounds
         noise_floor_var = features[200] if len(features) > 200 else 0
         snr_estimate = features[202] if len(features) > 202 else 0
         bg_consistency = features[203] if len(features) > 203 else 0
         low_freq_room_tone = features[204] if len(features) > 204 else 0
         bg_transients = features[206] if len(features) > 206 else 0
         
-        # Humans have: higher noise variance, more room tone, more transients, lower bg consistency
         bg_human_score = 0
-        if noise_floor_var > 0.001: bg_human_score += 1  # Varied noise floor
-        if bg_consistency < 0.95: bg_human_score += 1  # Not too consistent
-        if low_freq_room_tone > 0.0001: bg_human_score += 1  # Has room rumble
-        if bg_transients > 2: bg_human_score += 1  # Has random sounds
-        check_results['background'] = 'HUMAN' if bg_human_score >= 2 else 'AI'
+        if noise_floor_var > 0.0005: bg_human_score += 1    # Relaxed from 0.001
+        if bg_consistency < 0.97: bg_human_score += 1        # Relaxed from 0.95
+        if low_freq_room_tone > 0.00005: bg_human_score += 1 # Relaxed from 0.0001
+        if bg_transients > 1: bg_human_score += 1            # Relaxed from 2
+        check_results['background'] = 'HUMAN' if bg_human_score >= 1 else 'AI'  # Only need 1/4
         
         # CHECK 2: SMOOTHNESS ANALYSIS (V4 features 208-215)
-        # AI is TOO smooth at all scales
         jitter_scale_var = features[208] if len(features) > 208 else 0
         shimmer_temporal_var = features[210] if len(features) > 210 else 0
         amplitude_microvar = features[211] if len(features) > 211 else 0
         zcr_voiced_var = features[212] if len(features) > 212 else 0
         transition_smoothness = features[213] if len(features) > 213 else 0
         
-        # Also check original jitter/shimmer from Part 2
         jitter_local = features[44] if len(features) > 44 else 0
         shimmer_local = features[95] if len(features) > 95 else 0
         
-        # Humans have: varied jitter across scales, shimmer changes over time, micro-variations
         smooth_human_score = 0
-        if jitter_scale_var > 0.001: smooth_human_score += 1  # Jitter varies by scale
-        if shimmer_temporal_var > 0.005: smooth_human_score += 1  # Shimmer changes
-        if amplitude_microvar > 0.001: smooth_human_score += 1  # Has micro-variations
-        if jitter_local > 0.005 or shimmer_local > 0.03: smooth_human_score += 1  # Has irregularity
-        check_results['smoothness'] = 'HUMAN' if smooth_human_score >= 2 else 'AI'
+        if jitter_scale_var > 0.0005: smooth_human_score += 1    # Relaxed from 0.001
+        if shimmer_temporal_var > 0.002: smooth_human_score += 1 # Relaxed from 0.005
+        if amplitude_microvar > 0.0005: smooth_human_score += 1  # Relaxed from 0.001
+        if jitter_local > 0.003 or shimmer_local > 0.02: smooth_human_score += 1  # Relaxed
+        check_results['smoothness'] = 'HUMAN' if smooth_human_score >= 1 else 'AI'  # Only need 1/4
         
         # CHECK 3: EMOTION/PROSODY ANALYSIS (V4 features 216-224)
-        # AI lacks natural pitch-energy coupling and emotion variation
         pitch_energy_corr = features[216] if len(features) > 216 else 0
         f0_declination = features[217] if len(features) > 217 else 0
         speaking_rate_var = features[218] if len(features) > 218 else 0
@@ -284,87 +279,80 @@ def predict_voice(audio_path: str, language: str = "English") -> dict:
         phrase_pitch_reset = features[220] if len(features) > 220 else 0
         energy_phrase_var = features[221] if len(features) > 221 else 0
         
-        # Humans have: pitch-energy coupling, F0 declination, rate variation, HNR changes
         emotion_human_score = 0
-        if abs(pitch_energy_corr) > 0.1: emotion_human_score += 1  # Pitch-energy coupled
-        if abs(f0_declination) > 0.001: emotion_human_score += 1  # Natural pitch decline
-        if speaking_rate_var > 0.1: emotion_human_score += 1  # Rate varies
-        if hnr_temporal_var > 0.5: emotion_human_score += 1  # Voice quality changes
-        if phrase_pitch_reset > 1: emotion_human_score += 1  # Has phrase boundaries
-        check_results['emotion'] = 'HUMAN' if emotion_human_score >= 2 else 'AI'
+        if abs(pitch_energy_corr) > 0.05: emotion_human_score += 1   # Relaxed from 0.1
+        if abs(f0_declination) > 0.0005: emotion_human_score += 1    # Relaxed from 0.001
+        if speaking_rate_var > 0.05: emotion_human_score += 1        # Relaxed from 0.1
+        if hnr_temporal_var > 0.2: emotion_human_score += 1          # Relaxed from 0.5
+        if phrase_pitch_reset > 0.5: emotion_human_score += 1        # Relaxed from 1
+        check_results['emotion'] = 'HUMAN' if emotion_human_score >= 2 else 'AI'  # Need 2/5
         
         # CHECK 4: BREATH/PAUSE ANALYSIS (Part 3 features 65-84)
-        # AI lacks natural breathing patterns
         pause_count = features[70] if len(features) > 70 else 0
         pause_std = features[72] if len(features) > 72 else 0
         breath_candidates = features[83] if len(features) > 83 else 0
         energy_acceleration = features[87] if len(features) > 87 else 0
         
-        # Humans have: varied pauses, breath sounds, energy attacks
         breath_human_score = 0
-        if pause_count > 3: breath_human_score += 1  # Has pauses
-        if pause_std > 0.1: breath_human_score += 1  # Pauses vary
-        if breath_candidates > 1: breath_human_score += 1  # Breath sounds
-        if abs(energy_acceleration) > 0.001: breath_human_score += 1  # Energy dynamics
-        check_results['breathing'] = 'HUMAN' if breath_human_score >= 2 else 'AI'
+        if pause_count > 1: breath_human_score += 1          # Relaxed from 3
+        if pause_std > 0.05: breath_human_score += 1         # Relaxed from 0.1
+        if breath_candidates > 0: breath_human_score += 1    # Relaxed from 1
+        if abs(energy_acceleration) > 0.0005: breath_human_score += 1  # Relaxed from 0.001
+        check_results['breathing'] = 'HUMAN' if breath_human_score >= 1 else 'AI'  # Only need 1/4
         
         # CHECK 5: PHASE/SPECTRAL ANALYSIS (Part 5 features 115-139)
-        # AI has unnatural phase coherence
         phase_smoothness = features[115] if len(features) > 115 else 0
         phase_discontinuity = features[116] if len(features) > 116 else 0
         spectral_flux_std = features[123] if len(features) > 123 else 0
         spectral_flatness_std = features[125] if len(features) > 125 else 0
         
-        # Also check HNR
         hnr = features[106] if len(features) > 106 else 0
         
-        # Humans have: phase discontinuities, spectral variation, not too clean HNR
         phase_human_score = 0
-        if phase_discontinuity > 0.01: phase_human_score += 1  # Has phase breaks
-        if spectral_flux_std > 1: phase_human_score += 1  # Spectral variation
-        if spectral_flatness_std > 0.01: phase_human_score += 1  # Flatness varies
-        if hnr < 25: phase_human_score += 1  # Not artificially clean
-        check_results['phase'] = 'HUMAN' if phase_human_score >= 2 else 'AI'
+        if phase_discontinuity > 0.005: phase_human_score += 1    # Relaxed from 0.01
+        if spectral_flux_std > 0.5: phase_human_score += 1        # Relaxed from 1
+        if spectral_flatness_std > 0.005: phase_human_score += 1  # Relaxed from 0.01
+        if hnr < 30: phase_human_score += 1                       # Relaxed from 25
+        check_results['phase'] = 'HUMAN' if phase_human_score >= 1 else 'AI'  # Only need 1/4
         
         # ========== AGGREGATE SPECIALIZED CHECKS ==========
         human_checks = sum(1 for v in check_results.values() if v == 'HUMAN')
         ai_checks = sum(1 for v in check_results.values() if v == 'AI')
         
-        # Combine specialized checks with overall model prediction
-        # Weight: model prediction (60%) + specialized checks (40%)
-        
+        # Combine: model prediction (75%) + specialized checks (25%)
+        # Higher model weight since the ensemble was trained on actual data
         specialized_human_score = human_checks / 5.0  # 0 to 1
-        combined_human_score = (overall_human_prob * 0.6) + (specialized_human_score * 0.4)
+        combined_human_score = (overall_human_prob * 0.75) + (specialized_human_score * 0.25)
         combined_ai_score = 1 - combined_human_score
         
-        # DECISION LOGIC:
-        # Rule 1: Combined human score < 50% = AI
-        # Rule 2: If model AND specialized checks both say AI = definitely AI
-        # Rule 3: If model says AI but checks say human = trust checks more (human might be smooth speaker)
-        
-        if combined_human_score < 0.50:
+        # DECISION LOGIC
+        if combined_human_score < 0.45:
             classification = "AI_GENERATED"
             confidence = combined_ai_score
-        elif overall_ai_prob > 0.7 and ai_checks >= 4:
+        elif overall_ai_prob > 0.8 and ai_checks >= 4:
             # Both model and checks strongly agree it's AI
             classification = "AI_GENERATED"
             confidence = combined_ai_score
         elif overall_ai_prob > 0.5 and human_checks >= 3:
-            # Model says AI but checks say human - likely smooth speaker
-            # Trust the specialized checks more
+            # Model uncertain but checks say human - trust checks (smooth speaker)
             classification = "HUMAN"
             confidence = combined_human_score
         elif human_checks >= 3:
             classification = "HUMAN"
             confidence = combined_human_score
         else:
-            # Unclear - use combined score
             if combined_human_score >= 0.5:
                 classification = "HUMAN"
                 confidence = combined_human_score
             else:
                 classification = "AI_GENERATED"
                 confidence = combined_ai_score
+        
+        # Confidence floor boost: don't report < 60% when majority checks agree
+        if classification == "HUMAN" and human_checks >= 3 and confidence < 0.70:
+            confidence = 0.70 + (human_checks - 3) * 0.10  # 3/5→70%, 4/5→80%, 5/5→90%
+        elif classification == "AI_GENERATED" and ai_checks >= 3 and confidence < 0.70:
+            confidence = 0.70 + (ai_checks - 3) * 0.10
         
         # Build detailed explanation
         check_summary = ", ".join([f"{k}={v}" for k, v in check_results.items()])

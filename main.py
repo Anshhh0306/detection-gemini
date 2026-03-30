@@ -13,10 +13,13 @@ from model import predict_voice, is_model_trained, get_model_info
 import tempfile
 import base64
 import os
+import time
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from google import genai
+from google.genai import types
+import sys
 
 client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
 
@@ -34,23 +37,53 @@ class FullVoiceResponse(BaseModel):
     intent: str
     actionable_summary: str
 
-def process_voice_with_gemini(raw_transcript: str) -> GeminiAgentSchema:
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=f"Please fix transcription errors, detect the language, and extract user intent from this transcript: {raw_transcript}",
-        config={
-            'response_mime_type': 'application/json',
-            'response_schema': GeminiAgentSchema,
-        },
-    )
-    
-    # Add this right before you return the data to the frontend
-    print("\n" + "="*40)
-    print("🤖 GEMINI AGENT RESPONSE:")
-    print(response.text) # This will print the raw JSON 
-    print("="*40 + "\n")
+def process_voice_with_gemini(audio_bytes: bytes) -> GeminiAgentSchema:
+    # Fallback chain: try 2.5-flash first, then 1.5-flash
+    models_to_try = ['gemini-2.5-flash', 'gemini-1.5-flash']
+    last_error = None
 
-    return response.parsed
+    # Build multimodal content: actual audio + text prompt
+    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg")
+    prompt = (
+        "Listen to this audio carefully. "
+        "Transcribe what is being said, detect the actual language spoken, "
+        "identify the speaker's intent, and provide an actionable summary. "
+        "Return the result as JSON matching the schema."
+    )
+
+    for model_name in models_to_try:
+        for attempt in range(3):  # Up to 3 retries per model
+            try:
+                print(f"\n[Gemini] Trying model={model_name}, attempt={attempt + 1}", flush=True)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[audio_part, prompt],
+                    config={
+                        'response_mime_type': 'application/json',
+                        'response_schema': GeminiAgentSchema,
+                    },
+                )
+
+                print("\n" + "="*40, flush=True)
+                print("🤖 GEMINI AGENT RESPONSE:", flush=True)
+                print(response.text, flush=True)
+                print("="*40 + "\n", flush=True)
+
+                return response.parsed
+
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if '503' in err_str or 'UNAVAILABLE' in err_str or 'high demand' in err_str:
+                    wait = 2 * (attempt + 1)
+                    print(f"[Gemini] 503 on {model_name} attempt {attempt + 1} — waiting {wait}s...", flush=True)
+                    time.sleep(wait)
+                else:
+                    # Non-503 error: skip retries for this model
+                    print(f"[Gemini] Non-503 error on {model_name}: {err_str}", flush=True)
+                    break
+
+    raise Exception(f"All Gemini models failed. Last error: {last_error}")
 
 app = FastAPI(title="AI Voice Detection API")
 
@@ -174,9 +207,20 @@ async def detect_voice(
                 detail=result.get("message", "Unknown error")
             )
         
-        raw_transcript_text = result.get("explanation", "")
-        gemini_result = process_voice_with_gemini(raw_transcript_text)
-        
+        # Send actual audio to Gemini for real transcription & language detection
+        gemini_result = process_voice_with_gemini(audio_bytes)
+
+        # ── Terminal Logging: Final combined response ──
+        print("\n" + "─"*50, flush=True)
+        print("📡 FINAL RESPONSE TO FRONTEND:", flush=True)
+        print(f"  classification     : {result['classification']}", flush=True)
+        print(f"  confidenceScore    : {result['confidenceScore']}", flush=True)
+        print(f"  corrected_transcript: {gemini_result.corrected_transcript}", flush=True)
+        print(f"  detected_language  : {gemini_result.detected_language}", flush=True)
+        print(f"  intent             : {gemini_result.intent}", flush=True)
+        print(f"  actionable_summary : {gemini_result.actionable_summary}", flush=True)
+        print("─"*50 + "\n", flush=True)
+
         return FullVoiceResponse(
             classification=result["classification"],
             confidenceScore=result["confidenceScore"],
