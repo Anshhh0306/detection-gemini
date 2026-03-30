@@ -16,6 +16,41 @@ import os
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from google import genai
+
+client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
+
+class GeminiAgentSchema(BaseModel):
+    corrected_transcript: str
+    detected_language: str
+    intent: str
+    actionable_summary: str
+
+class FullVoiceResponse(BaseModel):
+    classification: str
+    confidenceScore: float
+    corrected_transcript: str
+    detected_language: str
+    intent: str
+    actionable_summary: str
+
+def process_voice_with_gemini(raw_transcript: str) -> GeminiAgentSchema:
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=f"Please fix transcription errors, detect the language, and extract user intent from this transcript: {raw_transcript}",
+        config={
+            'response_mime_type': 'application/json',
+            'response_schema': GeminiAgentSchema,
+        },
+    )
+    
+    # Add this right before you return the data to the frontend
+    print("\n" + "="*40)
+    print("🤖 GEMINI AGENT RESPONSE:")
+    print(response.text) # This will print the raw JSON 
+    print("="*40 + "\n")
+
+    return response.parsed
 
 app = FastAPI(title="AI Voice Detection API")
 
@@ -82,7 +117,7 @@ async def model_status():
     return get_model_info()
 
 
-@app.post("/api/voice-detection", response_model=VoiceDetectionResponse)
+@app.post("/api/voice-detection", response_model=FullVoiceResponse)
 async def detect_voice(
     request: VoiceDetectionRequest,
     auth=Depends(verify_api_key)
@@ -139,12 +174,16 @@ async def detect_voice(
                 detail=result.get("message", "Unknown error")
             )
         
-        return VoiceDetectionResponse(
-            status="success",
-            language=request.language,
+        raw_transcript_text = result.get("explanation", "")
+        gemini_result = process_voice_with_gemini(raw_transcript_text)
+        
+        return FullVoiceResponse(
             classification=result["classification"],
             confidenceScore=result["confidenceScore"],
-            explanation=result["explanation"]
+            corrected_transcript=gemini_result.corrected_transcript,
+            detected_language=gemini_result.detected_language,
+            intent=gemini_result.intent,
+            actionable_summary=gemini_result.actionable_summary
         )
         
     except HTTPException:

@@ -337,30 +337,27 @@
         <div class="error-message" id="errorMessage"></div>
 
         <div class="result-section" id="resultSection">
-            <div class="result-badge" id="resultBadge"></div>
+            <div class="result-badge" id="resultBadge" style="background: linear-gradient(90deg, #7c3aed, #00d4ff);">🤖 Voice Support Agent</div>
             
-            <div class="confidence-bar">
+            <div class="confidence-bar" style="margin-top: 15px;">
                 <div class="confidence-fill" id="confidenceFill"></div>
             </div>
+
+            <p id="confidenceText" style="margin-bottom: 20px; font-weight: bold; font-size: 1.2rem;"></p>
+            <p id="languageText" style="margin-bottom: 20px; font-weight: bold; font-size: 1.1rem; color: #a0a0a0;"></p>
             
-            <p id="confidenceText"></p>
-            
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-label">Human Probability</div>
-                    <div class="stat-value" id="humanProb">-</div>
+            <div class="stats" style="grid-template-columns: 1fr; gap: 15px;">
+                <div class="stat-card" style="text-align: left;">
+                    <div class="stat-label">Corrected Transcript</div>
+                    <div class="stat-value" id="correctedTranscript" style="font-size: 1.1rem; font-weight: normal; margin-top: 10px; line-height: 1.5;">-</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">AI Probability</div>
-                    <div class="stat-value" id="aiProb">-</div>
+                <div class="stat-card" style="text-align: left;">
+                    <div class="stat-label">Detected Intent</div>
+                    <div class="stat-value" id="detectedIntent" style="font-size: 1.1rem; font-weight: normal; margin-top: 10px; line-height: 1.5;">-</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-label">Audio Duration</div>
-                    <div class="stat-value" id="audioDuration">-</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Processing Time</div>
-                    <div class="stat-value" id="processingTime">-</div>
+                <div class="stat-card" style="text-align: left;">
+                    <div class="stat-label">Actionable Summary</div>
+                    <div class="stat-value" id="actionableSummary" style="font-size: 1.1rem; font-weight: normal; margin-top: 10px; line-height: 1.5;">-</div>
                 </div>
             </div>
             
@@ -482,33 +479,27 @@
         });
 
         function showResult(data) {
+            const confidenceText = document.getElementById('confidenceText');
+            const languageText = document.getElementById('languageText');
             const resultBadge = document.getElementById('resultBadge');
             const confidenceFill = document.getElementById('confidenceFill');
-            const confidenceText = document.getElementById('confidenceText');
-
+            
             const isAI = data.classification === 'AI_GENERATED';
             const confidence = data.confidenceScore * 100;
-
-            resultBadge.textContent = isAI ? '🤖 AI Voice' : '👤 Human Voice';
-            resultBadge.className = 'result-badge ' + (isAI ? 'ai' : 'human');
-
-            confidenceFill.style.width = confidence + '%';
-            confidenceFill.className = 'confidence-fill ' + (isAI ? 'ai' : 'human');
-
-            confidenceText.textContent = `Confidence: ${confidence.toFixed(1)}%`;
-
-            // Calculate probabilities from confidence
-            const aiProb = isAI ? data.confidenceScore : (1 - data.confidenceScore);
-            const humanProb = isAI ? (1 - data.confidenceScore) : data.confidenceScore;
             
-            document.getElementById('humanProb').textContent = 
-                (humanProb * 100).toFixed(1) + '%';
-            document.getElementById('aiProb').textContent = 
-                (aiProb * 100).toFixed(1) + '%';
-            document.getElementById('audioDuration').textContent = 
-                (data.segmentsAnalyzed || 1) + ' segments';
-            document.getElementById('processingTime').textContent = 
-                data.explanation || 'Multi-pass analysis';
+            resultBadge.textContent = isAI ? '🤖 AI Voice Detected' : '👤 Human Voice Detected';
+            resultBadge.style.background = isAI ? 'linear-gradient(90deg, #ff416c, #ff4b2b)' : 'linear-gradient(90deg, #00b894, #00cec9)';
+            
+            confidenceFill.style.width = confidence + '%';
+            confidenceFill.style.background = isAI ? 'linear-gradient(90deg, #ff416c, #ff4b2b)' : 'linear-gradient(90deg, #00b894, #00cec9)';
+            
+            confidenceText.textContent = `Confidence: ${confidence.toFixed(1)}%`;
+            languageText.textContent = `Language Detected: ${data.detected_language}`;
+
+            // Populate newly mapped agent fields
+            document.getElementById('correctedTranscript').textContent = data.corrected_transcript || 'N/A';
+            document.getElementById('detectedIntent').textContent = data.intent || 'N/A';
+            document.getElementById('actionableSummary').textContent = data.actionable_summary || 'N/A';
 
             resultSection.classList.add('show');
         }

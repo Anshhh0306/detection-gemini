@@ -17,7 +17,7 @@ try:
     from features_v3 import extract_features, N_FEATURES, FEATURE_NAMES
     FEATURES_VERSION = "v3"
 except ImportError:
-    from features import extract_features
+    from features_v3 import extract_features
     N_FEATURES = 125
     FEATURE_NAMES = []
     FEATURES_VERSION = "v2"
